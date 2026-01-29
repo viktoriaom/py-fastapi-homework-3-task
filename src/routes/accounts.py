@@ -163,33 +163,35 @@ async def reset_password_complete(
     user = await get_user_by_email(email=user_data.email, db=db)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid email or token.")
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Invalid email or token.")
+
+    result = await db.execute(
+        select(PasswordResetTokenModel).where(
+            PasswordResetTokenModel.user_id == cast(int, user.id)))
+    token_record = result.scalar_one_or_none()
+    if not token_record:
+        raise HTTPException(status_code=400, detail="Invalid email or token.")
     else:
-        result = await db.execute(
-            select(PasswordResetTokenModel).where(
-                PasswordResetTokenModel.user_id == cast(int, user.id)))
-        token_record = result.scalar_one_or_none()
-        if not token_record:
+        token_record.expires_at = cast(datetime, token_record.expires_at).replace(tzinfo=timezone.utc)
+        if token_record.expires_at < datetime.now(timezone.utc):
+            await db.delete(token_record)
+            await db.commit()
             raise HTTPException(status_code=400, detail="Invalid email or token.")
         else:
-            token_record.expires_at = cast(datetime, token_record.expires_at).replace(tzinfo=timezone.utc)
-            if token_record.expires_at < datetime.now(timezone.utc):
+            if token_record.token == user_data.token:
+                try:
+                    user.password = user_data.password
+                    await db.delete(token_record)
+                    await db.commit()
+                    return {"message": "Password reset successfully."}
+                except Exception:
+                    await db.rollback()
+                    raise HTTPException(status_code=500, detail="An error occurred while resetting the password.")
+            else:
                 await db.delete(token_record)
                 await db.commit()
                 raise HTTPException(status_code=400, detail="Invalid email or token.")
-            else:
-                if token_record.token == user_data.token:
-                    try:
-                        user.password = user_data.password
-                        await db.delete(token_record)
-                        await db.commit()
-                        return {"message": "Password reset successfully."}
-                    except Exception:
-                        await db.rollback()
-                        raise HTTPException(status_code=500, detail="An error occurred while resetting the password.")
-                else:
-                    await db.delete(token_record)
-                    await db.commit()
-                    raise HTTPException(status_code=400, detail="Invalid email or token.")
 
 
 @router.post("/login/", response_model=UserLoginResponseSchema, status_code=201)
