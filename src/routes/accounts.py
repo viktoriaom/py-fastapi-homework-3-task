@@ -120,20 +120,17 @@ async def activate_account(
 
         raise HTTPException(status_code=400, detail="Invalid or expired activation token.")
 
-    if token_record.token == user.token:
-        if user_record.is_active:
-            raise HTTPException(status_code=400, detail="User account is already active.")
-        else:
-            user_record.is_active = True
-            await db.commit()
-            await db.refresh(user_record)
-
-            await db.delete(token_record)
-            await db.commit()
-
-            return {"message": "User account activated successfully."}
+    if user_record.is_active:
+        raise HTTPException(status_code=400, detail="User account is already active.")
     else:
-        raise HTTPException(status_code=400, detail="Invalid or expired activation token.")
+        user_record.is_active = True
+        await db.commit()
+        await db.refresh(user_record)
+
+        await db.delete(token_record)
+        await db.commit()
+
+        return {"message": "User account activated successfully."}
 
 
 @router.post("/password-reset/request/", status_code=200)
